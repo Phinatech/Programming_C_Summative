@@ -60,6 +60,7 @@ void deleteValue(int **data, int *size, int index) {
         *data = NULL;
         *size = 0;
     }
+    printf("Value at index %d deleted successfully.\n", index);
 }
 
 /* ============================
