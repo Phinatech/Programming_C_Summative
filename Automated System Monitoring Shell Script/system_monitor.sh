@@ -18,7 +18,7 @@ DISK_THRESHOLD=80
 
 check_dependencies() {
     local missing=0
-    for cmd in top free df ps awk date; do
+    for cmd in top df ps awk date; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             echo "Error: Required command '$cmd' not found in PATH."
             missing=1
@@ -50,22 +50,9 @@ init_log() {
 ########################
 
 get_cpu_usage() {
-    # Parse CPU usage from top (non-interactive)
-    # Assumes a "Cpu(s)" line with idle percentage.
+    # Parse CPU usage from top on macOS
     local cpu
-    cpu=$(top -bn1 | awk -F',' '/Cpu\(s\)/ {
-        idle=0
-        for (i=1;i<=NF;i++) {
-            if ($i ~ /id/) {
-                gsub(".* ", "", $i)
-                gsub("%", "", $i)
-                gsub("id", "", $i)
-                idle=$i
-            }
-        }
-        if (idle == 0) idle=0
-        printf "%.0f", 100-idle
-    }')
+    cpu=$(top -l 2 -n 0 | awk '/CPU usage/ {gsub("%",""); printf "%.0f", $3+$5; exit}')
 
     # Fallback if parsing fails
     if [[ -z "$cpu" ]]; then
@@ -75,8 +62,19 @@ get_cpu_usage() {
 }
 
 get_mem_usage() {
-    # Uses 'free' to calculate memory usage %
-    free | awk '/Mem:/ {printf "%.0f", $3/$2*100}'
+    # Uses vm_stat on macOS to calculate memory usage %
+    local page_size=$(pagesize)
+    local vm_stat=$(vm_stat)
+    local pages_free=$(echo "$vm_stat" | awk '/Pages free/ {gsub(/\./,""); print $3}')
+    local pages_active=$(echo "$vm_stat" | awk '/Pages active/ {gsub(/\./,""); print $3}')
+    local pages_inactive=$(echo "$vm_stat" | awk '/Pages inactive/ {gsub(/\./,""); print $3}')
+    local pages_speculative=$(echo "$vm_stat" | awk '/Pages speculative/ {gsub(/\./,""); print $3}')
+    local pages_wired=$(echo "$vm_stat" | awk '/Pages wired down/ {gsub(/\./,""); print $4}')
+    
+    local mem_used=$((($pages_active + $pages_wired) * $page_size))
+    local mem_total=$(sysctl -n hw.memsize)
+    
+    awk -v used="$mem_used" -v total="$mem_total" 'BEGIN {printf "%.0f", (used/total)*100}'
 }
 
 get_disk_usage() {
@@ -85,8 +83,8 @@ get_disk_usage() {
 }
 
 show_top_processes() {
-    # Top 5 CPU-consuming processes
-    ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6
+    # Top 5 CPU-consuming processes (macOS compatible)
+    ps -Ao pid,comm,%cpu,%mem -r | head -n 6
 }
 
 ########################
